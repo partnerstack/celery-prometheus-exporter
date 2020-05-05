@@ -360,13 +360,14 @@ def main():  # pragma: no cover
     w.start()
 
     if opts.queue_list:
-        if type(opts.queue_list) == str:
-            queue_list = opts.queue_list.split(',')
+
+        # CLI argument will likely be a string nested in a list
+        if type(opts.queue_list) == list and len(opts.queue_list) == 1:
+            queue_list = bytearray(opts.queue_list.pop().encode('utf-8')).decode('unicode_escape').split(',')
         else:
             queue_list = opts.queue_list
 
         q = QueueLengthMonitoringThread(app=app, queue_list=queue_list)
-
         q.daemon = True
         q.start()
 
