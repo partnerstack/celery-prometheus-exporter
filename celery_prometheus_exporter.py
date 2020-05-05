@@ -363,10 +363,10 @@ def main():  # pragma: no cover
 
         # CLI argument will likely be a string nested in a list
         queue_list = opts.queue_list
-        if type(opts.queue_list) == list and len(opts.queue_list) == 1:
-            queue_list = bytearray(opts.queue_list.pop().encode('utf-8')).decode('unicode_escape').split(',')
-        elif type(opts.queue_list) == str:
+        if type(opts.queue_list) == str:
             queue_list = [opts.queue_list]
+        if len(opts.queue_list) == 1:
+            queue_list = bytearray(opts.queue_list.pop().encode('utf-8')).decode('unicode_escape').split(',')
 
         q = QueueLengthMonitoringThread(app=app, queue_list=queue_list)
         q.daemon = True
