@@ -365,9 +365,10 @@ def main():  # pragma: no cover
         queue_list = opts.queue_list
         if type(opts.queue_list) == str:
             queue_list = [opts.queue_list]
-        if len(opts.queue_list) == 1:
-            queue_list = bytearray(opts.queue_list.pop().encode('utf-8')).decode('unicode_escape').split(',')
+        if len(queue_list) == 1:
+            queue_list = bytearray(queue_list.pop().encode('utf-8')).decode('unicode_escape').split(',')
 
+        logging.info('Monitoring queues {}'.format(", ".join(queue_list)))
         q = QueueLengthMonitoringThread(app=app, queue_list=queue_list)
         q.daemon = True
         q.start()
