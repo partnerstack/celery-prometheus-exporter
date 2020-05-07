@@ -236,7 +236,9 @@ class QueueLengthMonitoringThread(threading.Thread):
             self.set_queue_length(queue, length)
 
     def set_queue_length(self, queue, length):
-        QUEUE_LENGTH.labels(queue).set(length)
+        # This is lazy and needs re-implementing properly, just ensuring the queue names look normal in the exporter
+        sanitized_queue_name = queue.replace('{', '').replace('}', '').replace('\x06', '').replace('\x16', '')
+        QUEUE_LENGTH.labels(sanitized_queue_name).set(length)
 
     def run(self):  # pragma: no cover
         while True:
