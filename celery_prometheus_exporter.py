@@ -236,7 +236,9 @@ class QueueLengthMonitoringThread(threading.Thread):
             self.set_queue_length(queue, length)
 
     def set_queue_length(self, queue, length):
-        QUEUE_LENGTH.labels(queue).set(length)
+        # This is lazy and needs re-implementing properly, just ensuring the queue names look normal in the exporter
+        sanitized_queue_name = queue.replace('{', '').replace('}', '').replace('\x06', '').replace('\x16', '')
+        QUEUE_LENGTH.labels(sanitized_queue_name).set(length)
 
     def run(self):  # pragma: no cover
         while True:
@@ -360,13 +362,16 @@ def main():  # pragma: no cover
     w.start()
 
     if opts.queue_list:
+
+        # CLI argument will likely be a string nested in a list
+        queue_list = opts.queue_list
         if type(opts.queue_list) == str:
-            queue_list = opts.queue_list.split(',')
-        else:
-            queue_list = opts.queue_list
+            queue_list = [opts.queue_list]
+        if len(queue_list) == 1:
+            queue_list = bytearray(queue_list.pop().encode('utf-8')).decode('unicode_escape').split(',')
 
+        logging.info('Monitoring queues {}'.format(", ".join(queue_list)))
         q = QueueLengthMonitoringThread(app=app, queue_list=queue_list)
-
         q.daemon = True
         q.start()
 
