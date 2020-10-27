@@ -1,5 +1,4 @@
 FROM python:3.6-alpine
-MAINTAINER Horst Gutmann <horst@zerokspot.com>
 
 RUN mkdir -p /app/requirements
 ADD requirements/* /app/requirements/
