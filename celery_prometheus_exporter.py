@@ -1,8 +1,5 @@
 from __future__ import print_function
 import argparse
-import celery
-import celery.states
-import celery.events
 import collections
 from itertools import chain
 import logging
@@ -13,7 +10,12 @@ import threading
 import time
 import json
 import os
+
+import celery
+import celery.states
+import celery.events
 from celery.utils.objects import FallbackContext
+
 import amqp.exceptions
 
 __VERSION__ = (1, 2, 0, 'final', 0)
