@@ -4,7 +4,7 @@ from kombu import Queue, Exchange
 import os
 import time
 
-BROKER_URL = os.getenv("BROKER_URL")
+BROKER_URL = os.getenv("BROKER_URL", "redis://redis:6379/0")
 RESULT_BACKEND_URL = os.getenv("RESULT_BACKEND_URL", None)
 
 celery_app = Celery(
