@@ -1,6 +1,6 @@
 all: image
 
-image: celery_prometheus_exporter.py Dockerfile requirements/*
+image:
 	docker build -f Dockerfile -t celery_exporter .
 
 clean:
