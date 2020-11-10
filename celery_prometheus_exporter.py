@@ -3,7 +3,7 @@ import argparse
 import collections
 from itertools import chain
 import logging
-import prometheus_client
+from prometheus_client import Histogram, Gauge, start_http_server
 import signal
 import sys
 import threading
@@ -29,8 +29,8 @@ def get_histogram_buckets_from_evn(env_name):
     if env_name in os.environ:
         buckets = decode_buckets(os.environ.get(env_name))
     else:
-        if hasattr(prometheus_client.Histogram, "DEFAULT_BUCKETS"):  # pragma: no cover
-            buckets = prometheus_client.Histogram.DEFAULT_BUCKETS
+        if hasattr(Histogram, "DEFAULT_BUCKETS"):  # pragma: no cover
+            buckets = Histogram.DEFAULT_BUCKETS
         else:  # pragma: no cover
             # For prometheus-client < 0.3.0 we cannot easily access
             # the default buckets:
@@ -65,24 +65,24 @@ DEFAULT_QUEUE_LIST = os.environ.get("QUEUE_LIST", [])
 
 LOG_FORMAT = "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
 
-TASKS = prometheus_client.Gauge("celery_tasks", "Number of tasks per state", ["state"])
-TASKS_NAME = prometheus_client.Gauge(
+TASKS = Gauge("celery_tasks", "Number of tasks per state", ["state"])
+TASKS_NAME = Gauge(
     "celery_tasks_by_name", "Number of tasks per state and name", ["state", "name"]
 )
-TASKS_RUNTIME = prometheus_client.Histogram(
+TASKS_RUNTIME = Histogram(
     "celery_tasks_runtime_seconds",
     "Task runtime (seconds)",
     ["name"],
     buckets=RUNTIME_HISTOGRAM_BUCKETS,
 )
-WORKERS = prometheus_client.Gauge("celery_workers", "Number of alive workers")
-LATENCY = prometheus_client.Histogram(
+WORKERS = Gauge("celery_workers", "Number of alive workers")
+LATENCY = Histogram(
     "celery_task_latency",
     "Seconds between a task is received and started.",
     buckets=LATENCY_HISTOGRAM_BUCKETS,
 )
 
-QUEUE_LENGTH = prometheus_client.Gauge(
+QUEUE_LENGTH = Gauge(
     "celery_queue_length", "Number of tasks in the queue.", ["queue_name"]
 )
 
@@ -314,7 +314,7 @@ def start_httpd(addr):  # pragma: no cover
     """
     host, port = addr.split(":")
     logging.info("Starting HTTPD on {}:{}".format(host, port))
-    prometheus_client.start_http_server(int(port), host)
+    start_http_server(int(port), host)
 
 
 def shutdown(signum, frame):  # pragma: no cover
