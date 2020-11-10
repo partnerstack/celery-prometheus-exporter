@@ -1,13 +1,16 @@
-FROM python:3.6-alpine
+FROM python:3.7-alpine
 
-RUN mkdir -p /app/requirements
-ADD requirements/* /app/requirements/
 WORKDIR /app
 
-ENV PYTHONUNBUFFERED 1
-RUN pip install -r requirements/promclient050.txt -r requirements/celery4.txt
-ADD celery_prometheus_exporter.py docker-entrypoint.sh /app/
+# Install Pipenv, copy required files and install dependencies
+RUN pip install pipenv
+COPY Pipfile Pipfile
+# COPY Pipfile.lock Pipfile.lock
+RUN pwd && ls
+RUN pipenv install
+# Copy in application files
+COPY . /app
+# Set entry point & command to exec script
 ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]
 CMD []
-
 EXPOSE 8888
