@@ -1,27 +1,36 @@
 version: "2"
 
 services:
-  app:
+  beat:
     image: celery-exporter:1.3.0
     build:
       context: .
-      dockerfile: Dockerfile-app
-    user: "65534" # avoids run as root warning from celery
+    user: "65534" # TODO: see if this is needed
     volumes:
       - ./:/app
     environment:
       - BROKER_URL=redis://@redis:6379/0
-    entrypoint: celery -A celeryapp worker
+    entrypoint: celery -A app beat
+
+  worker:
+    image: celery-exporter:1.3.0
+    build:
+      context: .
+    user: "65534" # TODO: see if this is needed
+    volumes:
+      - ./:/app
+    environment:
+      - BROKER_URL=redis://@redis:6379/0
+    entrypoint: celery -A app worker
 
   exporter:
     image: celery-exporter:1.3.0
     build:
       context: .
-      dockerfile: Dockerfile
     volumes:
       - ./:/app
     environment:
-      - BROKER_URL=redis://rabbit
+      - BROKER_URL=redis://@redis:6379/0
       - QUEUE_LIST=queue1,queue2,queue3
     ports:
       - 8888:8888
