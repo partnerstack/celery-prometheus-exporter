@@ -20,10 +20,10 @@ from exporter import (
     setup_metrics,
     MonitorThread,
     EnableEventsThread,
-    TASKS,
+    TasksByStateGauge,
     get_histogram_buckets_from_evn,
     QueueLengthMonitoringThread,
-    QUEUE_LENGTH,
+    QueueLengthGauge,
 )
 
 from celery_test_utils import get_celery_app, SampleTask
@@ -46,7 +46,7 @@ class TestBucketLoading(TestCase):
 
 class TestFallbackSetup(TestCase):
     def test_fallback(self):
-        TASKS.labels(state="RUNNING").set(0)
+        TasksByStateGauge.labels(state="RUNNING").set(0)
         setup_metrics(None)
 
 
