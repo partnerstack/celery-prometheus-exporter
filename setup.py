@@ -22,7 +22,7 @@ setup(
         "Programming Language :: Python :: 3 :: Only",
     ],
     py_modules=[
-        "celery_prometheus_exporter",
+        "exporter",
     ],
     install_requires=[
         "celery>=3",
@@ -30,7 +30,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "celery-prometheus-exporter = celery_prometheus_exporter:main",
+            "celery-prometheus-exporter = exporter:main",
         ],
     },
 )
