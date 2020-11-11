@@ -1,4 +1,5 @@
 from __future__ import print_function
+from typing import List
 import argparse
 import collections
 from itertools import chain
@@ -8,15 +9,14 @@ import signal
 import sys
 import threading
 import time
-import json
 import os
 
-import celery
+from celery import Celery
 import celery.states
 import celery.events
 from celery.utils.objects import FallbackContext
 
-from exporter.metrics import (
+from metrics import (
     TasksByStateGauge,
     TasksByStateAndNameGauge,
     TaskRuntimeByNameHistogram,
@@ -29,15 +29,6 @@ import amqp.exceptions
 
 __VERSION__ = "1.3.0"
 
-
-DEFAULT_BROKER = os.environ.get("BROKER_URL", "redis://redis:6379/0")
-DEFAULT_ADDR = os.environ.get("DEFAULT_ADDR", "0.0.0.0:8888")
-DEFAULT_MAX_TASKS_IN_MEMORY = int(
-    os.environ.get("DEFAULT_MAX_TASKS_IN_MEMORY", "10000")
-)
-
-DEFAULT_QUEUE_LIST = os.environ.get("QUEUE_LIST", [])
-
 LOG_FORMAT = "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
 
 
@@ -47,20 +38,17 @@ class MonitorThread(threading.Thread):
     exposed from Celery using its eventing system.
     """
 
-    def __init__(self, app=None, *args, **kwargs):
+    def __init__(self, app=None, max_tasks_in_memory=None):
         self._app = app
         self.log = logging.getLogger("monitor")
         self.log.info("Setting up monitor...")
-        max_tasks_in_memory = kwargs.pop(
-            "max_tasks_in_memory", DEFAULT_MAX_TASKS_IN_MEMORY
-        )
         self._state = self._app.events.State(max_tasks_in_memory=max_tasks_in_memory)
         self._known_states = set()
         self._known_states_names = set()
         self._tasks_started = dict()
-        super(MonitorThread, self).__init__(*args, **kwargs)
+        super(MonitorThread, self).__init__()
 
-    def run(self):  # pragma: no cover
+    def run(self):
         self._monitor()
 
     def _process_event(self, evt):
@@ -78,7 +66,7 @@ class MonitorThread(threading.Thread):
     def _observe_latency(self, evt):
         try:
             prev_evt = self._state.tasks[evt["uuid"]]
-        except KeyError:  # pragma: no cover
+        except KeyError:
             pass
         else:
             # ignore latency if it is a retry
@@ -105,7 +93,7 @@ class MonitorThread(threading.Thread):
                 TaskRuntimeByNameHistogram.labels(name=event.name).observe(
                     evt["runtime"]
                 )
-        except (KeyError, AttributeError):  # pragma: no cover
+        except (KeyError, AttributeError):
             pass
 
     def _collect_unready_tasks(self):
@@ -126,7 +114,7 @@ class MonitorThread(threading.Thread):
                 name=task_state[1],
             ).set(cnt[task_state])
 
-    def _monitor(self):  # pragma: no cover
+    def _monitor(self):
         while True:
             try:
                 self.log.info("Connecting to broker...")
@@ -155,7 +143,7 @@ class WorkerMonitoringThread(threading.Thread):
         self.log = logging.getLogger("workers-monitor")
         super(WorkerMonitoringThread, self).__init__(*args, **kwargs)
 
-    def run(self):  # pragma: no cover
+    def run(self):
         while True:
             self.update_workers_count()
             time.sleep(self.periodicity_seconds)
@@ -165,35 +153,14 @@ class WorkerMonitoringThread(threading.Thread):
             WorkersGauge.set(
                 len(self._app.control.ping(timeout=self.celery_ping_timeout_seconds))
             )
-        except Exception:  # pragma: no cover
+        except Exception:
             self.log.exception("Error while pinging workers")
-
-
-class EnableEventsThread(threading.Thread):
-    periodicity_seconds = 5
-
-    def __init__(self, app=None, *args, **kwargs):  # pragma: no cover
-        self._app = app
-        self.log = logging.getLogger("enable-events")
-        super(EnableEventsThread, self).__init__(*args, **kwargs)
-
-    def run(self):  # pragma: no cover
-        while True:
-            try:
-                self.enable_events()
-            except Exception:
-                self.log.exception("Error while trying to enable events")
-            time.sleep(self.periodicity_seconds)
-
-    def enable_events(self):
-        self._app.control.enable_events()
 
 
 class QueueLengthMonitoringThread(threading.Thread):
     periodicity_seconds = 30
 
-    def __init__(self, app, queue_list):
-        # type: (celery.Celery, [str]) -> None
+    def __init__(self, app: celery.Celery, queue_list: List[str]):
         self.celery_app = app
         self.queue_list = queue_list
         self.connection = self.celery_app.connection_or_acquire()
@@ -205,71 +172,38 @@ class QueueLengthMonitoringThread(threading.Thread):
 
     def measure_queues_length(self):
         for queue in self.queue_list:
-            try:
-                length = self.connection.default_channel.queue_declare(
-                    queue=queue, passive=True
-                ).message_count
-            except (amqp.exceptions.ChannelError,) as e:
-                logging.warning(
-                    "Queue Not Found: {}. Setting its value to zero. Error: {}".format(
-                        queue, str(e)
-                    )
-                )
-                length = 0
+            length = self.connection.default_channel.queue_declare(
+                queue=queue, passive=True
+            ).message_count
 
             self.set_queue_length(queue, length)
 
-    def set_queue_length(self, queue, length):
-        # This is lazy and needs re-implementing properly, just ensuring the queue names look normal in the exporter
-        sanitized_queue_name = (
-            queue.replace("{", "")
-            .replace("}", "")
-            .replace("\x06", "")
-            .replace("\x16", "")
-        )
-        QueueLengthGauge.labels(sanitized_queue_name).set(length)
+    def set_queue_length(self, queue_name, length):
+        QueueLengthGauge.labels(queue_name).set(length)
 
-    def run(self):  # pragma: no cover
+    def run(self):
         while True:
             self.measure_queues_length()
             time.sleep(self.periodicity_seconds)
 
 
-def setup_metrics(app):
+def setup_metrics(celery_app: Celery, queue_list: List[str]):
     """
     This initializes the available metrics with default values so that
     even before the first event is received, data can be exposed.
     """
-    WorkersGauge.set(0)
+
     logging.info("Setting up metrics, trying to connect to broker...")
-    try:
-        registered_tasks = app.control.inspect().registered_tasks().values()
-    except Exception:  # pragma: no cover
-        for metric in TasksByStateGauge.collect():
-            for sample in metric.samples:
-                TasksByStateGauge.labels(**sample[1]).set(0)
-        for metric in TasksByStateAndNameGauge.collect():
-            for sample in metric.samples:
-                TasksByStateAndNameGauge.labels(**sample[1]).set(0)
+    WorkersGauge.set(0)
 
-    else:
-        for state in celery.states.ALL_STATES:
-            TasksByStateGauge.labels(state=state).set(0)
-            for task_name in set(chain.from_iterable(registered_tasks)):
-                TasksByStateAndNameGauge.labels(state=state, name=task_name).set(0)
+    for queue_name in queue_list:
+        QueueLengthGauge.labels(queue_name).set(0)
+
+    for state in celery.states.ALL_STATES:
+        TasksByStateGauge.labels(state=state).set(0)
 
 
-def start_httpd(addr):  # pragma: no cover
-    """
-    Starts the exposing HTTPD using the addr provided in a separate
-    thread.
-    """
-    host, port = addr.split(":")
-    logging.info("Starting HTTPD on {}:{}".format(host, port))
-    start_http_server(int(port), host)
-
-
-def shutdown(signum, frame):  # pragma: no cover
+def shutdown(signum, frame):
     """
     Shutdown is called if the process receives a TERM signal. This way
     we try to prevent an ugly stacktrace being rendered to the user on
@@ -279,40 +213,34 @@ def shutdown(signum, frame):  # pragma: no cover
     sys.exit(0)
 
 
-def main():  # pragma: no cover
+def main():
+    DEFAULT_BROKER = os.environ.get("BROKER_URL", "redis://redis:6379/0")
+    DEFAULT_PORT = os.environ.get("DEFAULT_ADDR", "8888")
+    DEFAULT_MAX_TASKS_IN_MEMORY = int(
+        os.environ.get("DEFAULT_MAX_TASKS_IN_MEMORY", "10000")
+    )
+
+    DEFAULT_QUEUE_LIST = os.environ.get("QUEUE_LIST", [])
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         "--broker",
         dest="broker",
         default=DEFAULT_BROKER,
-        help="URL to the Celery broker. Defaults to {}".format(DEFAULT_BROKER),
+        help=f"URL to the Celery broker, defaults to redis.",
+    )
+
+    parser.add_argument(
+        "--port",
+        dest="port",
+        default=DEFAULT_PORT,
+        help=f"Port to listen on. Defaults to {DEFAULT_PORT}",
     )
     parser.add_argument(
-        "--transport-options",
-        dest="transport_options",
-        help=(
-            "JSON object with additional options passed to the underlying " "transport."
-        ),
+        "--tz", dest="tz", default="UTC", help="Timezone used by the celery app."
     )
-    parser.add_argument(
-        "--addr",
-        dest="addr",
-        default=DEFAULT_ADDR,
-        help="Address the HTTPD should listen on. Defaults to {}".format(DEFAULT_ADDR),
-    )
-    parser.add_argument(
-        "--enable-events", action="store_true", help="Periodically enable Celery events"
-    )
-    parser.add_argument("--tz", dest="tz", help="Timezone used by the celery app.")
     parser.add_argument(
         "--verbose", action="store_true", default=False, help="Enable verbose logging"
-    )
-    parser.add_argument(
-        "--max_tasks_in_memory",
-        dest="max_tasks_in_memory",
-        default=DEFAULT_MAX_TASKS_IN_MEMORY,
-        type=int,
-        help="Tasks cache size. Defaults to {}".format(DEFAULT_MAX_TASKS_IN_MEMORY),
     )
     parser.add_argument(
         "--queue-list",
@@ -321,9 +249,8 @@ def main():  # pragma: no cover
         nargs="+",
         help="Queue List. Will be checked for its length.",
     )
-    parser.add_argument(
-        "--version", action="version", version=".".join([str(x) for x in __VERSION__])
-    )
+    parser.add_argument("--version", action="version", version=__VERSION__)
+
     opts = parser.parse_args()
 
     if opts.verbose:
@@ -331,42 +258,13 @@ def main():  # pragma: no cover
     else:
         logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
-
     if opts.tz:
         os.environ["TZ"] = opts.tz
         time.tzset()
 
     logging.info("Setting up celery for {}".format(opts.broker))
-    app = celery.Celery(broker=opts.broker)
-
-    if opts.transport_options:
-        try:
-            transport_options = json.loads(opts.transport_options)
-        except ValueError:
-            print(
-                "Error parsing broker transport options from JSON '{}'".format(
-                    opts.transport_options
-                ),
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        else:
-            app.conf.broker_transport_options = transport_options
-
-    setup_metrics(app)
-
-    t = MonitorThread(app=app, max_tasks_in_memory=opts.max_tasks_in_memory)
-    t.daemon = True
-    t.start()
-
-    w = WorkerMonitoringThread(app=app)
-    w.daemon = True
-    w.start()
 
     if opts.queue_list:
-
         # CLI argument will likely be a string nested in a list
         queue_list = opts.queue_list
         if type(opts.queue_list) == str:
@@ -378,22 +276,43 @@ def main():  # pragma: no cover
                 .split(",")
             )
 
-        logging.info("Monitoring queues {}".format(", ".join(queue_list)))
-        q = QueueLengthMonitoringThread(app=app, queue_list=queue_list)
-        q.daemon = True
-        q.start()
+        # TODO: Split these into priorities
+        # This is lazy and needs re-implementing properly
+        # just ensuring the queue names look normal in the exporter
+        # sanitized_queue_name = (
+        #     queue.replace("{", "")
+        #     .replace("}", "")
+        #     .replace("\x06", "")
+        #     .replace("\x16", "")
+        # )
 
-    e = None
-    if opts.enable_events:
-        e = EnableEventsThread(app=app)
-        e.daemon = True
-        e.start()
-    start_httpd(opts.addr)
-    t.join()
-    w.join()
-    if e is not None:
-        e.join()
+    celery_app = Celery(broker=opts.broker)
+
+    logging.info(f"Monitoring queues {queue_list}")
+
+    setup_metrics(celery_app, queue_list=queue_list)
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
+    # t = MonitorThread(app=celery_app, max_tasks_in_memory=10000)
+    # t.daemon = True
+    # t.start()
+
+    # w = WorkerMonitoringThread(app=celery_app)
+    # w.daemon = True
+    # w.start()
+
+    # q = QueueLengthMonitoringThread(app=celery_app, queue_list=queue_list)
+    # q.daemon = True
+    # q.start()
+
+    start_http_server(int(opts.port))
+    while True:
+        pass
+    # t.join()
+    # w.join()
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     main()
