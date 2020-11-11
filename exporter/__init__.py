@@ -160,7 +160,7 @@ class WorkerMonitoringThread(threading.Thread):
 class QueueLengthMonitoringThread(threading.Thread):
     periodicity_seconds = 30
 
-    def __init__(self, app: celery.Celery, queue_list: List[str]):
+    def __init__(self, app: Celery, queue_list: List[str]):
         self.celery_app = app
         self.queue_list = queue_list
         self.connection = self.celery_app.connection_or_acquire()
@@ -201,6 +201,22 @@ def setup_metrics(celery_app: Celery, queue_list: List[str]):
 
     for state in celery.states.ALL_STATES:
         TasksByStateGauge.labels(state=state).set(0)
+
+
+def collect_metrics(celery_app: Celery, queue_list: List[str]):
+    # TODO: Port metric collection from all the Threaded classes into here
+    # MonitorThread(app=celery_app, max_tasks_in_memory=10000)
+
+    # WorkerMonitoringThread(app=celery_app)
+
+    # QueueLengthMonitoringThread(app=celery_app, queue_list=queue_list)
+    pass
+
+
+def tick_sleep(start_time: float, interval_seconds: int = 5):
+    """Sleep for a the remaining time within the interval"""
+    interval_seconds = float(interval_seconds)
+    time.sleep(interval_seconds - ((time.time() - start_time) % interval_seconds))
 
 
 def shutdown(signum, frame):
@@ -295,23 +311,16 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    # t = MonitorThread(app=celery_app, max_tasks_in_memory=10000)
-    # t.daemon = True
-    # t.start()
-
-    # w = WorkerMonitoringThread(app=celery_app)
-    # w.daemon = True
-    # w.start()
-
-    # q = QueueLengthMonitoringThread(app=celery_app, queue_list=queue_list)
-    # q.daemon = True
-    # q.start()
-
     start_http_server(int(opts.port))
+
+    start_time = time.time()
     while True:
-        pass
-    # t.join()
-    # w.join()
+        print("tick")
+        collect_metrics(
+            celery_app,
+            queue_list,
+        )
+        tick_sleep(start_time, interval_seconds=5)
 
 
 if __name__ == "__main__":
