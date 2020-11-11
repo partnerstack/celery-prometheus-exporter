@@ -19,7 +19,7 @@ Q3 = "queue3"
 
 
 task_default_queue = Q1
-task_queues = (Queue(Q3, exchange=Exchange(Q3, type="direct"), routing_key=Q3),)
+
 task_routes = {
     "app.one": {"queue": Q1},
     "app.two": {"queue": Q2},
@@ -30,14 +30,14 @@ task_routes = {
 beat_schedule = {
     "one": {
         "task": "app.one",
-        "schedule": timedelta(seconds=1),
+        "schedule": timedelta(milliseconds=10),
     },
     "two": {
         "task": "app.two",
-        "schedule": timedelta(seconds=1),
+        "schedule": timedelta(milliseconds=20),
     },
     "three": {
         "task": "app.three",
-        "schedule": timedelta(seconds=1),
+        "schedule": timedelta(milliseconds=30),
     },
 }
