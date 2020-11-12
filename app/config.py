@@ -30,14 +30,14 @@ task_routes = {
 beat_schedule = {
     "one": {
         "task": "app.one",
-        "schedule": timedelta(milliseconds=10),
+        "schedule": timedelta(milliseconds=1000),
     },
     "two": {
         "task": "app.two",
-        "schedule": timedelta(milliseconds=20),
+        "schedule": timedelta(milliseconds=2000),
     },
     "three": {
         "task": "app.three",
-        "schedule": timedelta(milliseconds=30),
+        "schedule": timedelta(milliseconds=3000),
     },
 }

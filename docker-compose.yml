@@ -2,7 +2,7 @@ version: "2"
 
 services:
   beat:
-    image: celery-exporter:1.3.0
+    image: celery-exporter:latest
     build:
       context: .
     user: "65534" # TODO: see if this is needed
@@ -13,7 +13,7 @@ services:
     entrypoint: celery -A app beat
 
   worker:
-    image: celery-exporter:1.3.0
+    image: celery-exporter:latest
     build:
       context: .
     user: "65534" # TODO: see if this is needed
@@ -24,7 +24,7 @@ services:
     entrypoint: celery -A app worker
 
   exporter:
-    image: celery-exporter:1.3.0
+    image: celery-exporter:latest
     build:
       context: .
     volumes:
@@ -32,6 +32,7 @@ services:
     environment:
       - BROKER_URL=redis://@redis:6379/0
       - QUEUE_LIST=queue1,queue2,queue3
+      - VERBOSE=true
     ports:
       - 8888:8888
 
