@@ -32,6 +32,7 @@ services:
     environment:
       - BROKER_URL=redis://@redis:6379/0
       - QUEUE_LIST=queue1,queue2,queue3
+      - PRIORITY_LEVELS=true
       - VERBOSE=true
     ports:
       - 8888:8888
