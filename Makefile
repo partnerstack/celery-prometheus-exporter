@@ -1,11 +1,14 @@
+SHELL = /bin/sh
+VERSION := $(shell cat VERSION)
+
 all: image
 
 image:
-	docker build -f Dockerfile -t celery_exporter .
+	docker build -f Dockerfile -t celery_exporter:$(VERSION) .
 
 clean:
 	rm -rf celery_exporter.img *.egg-info build dist
 
 publish: all
-	docker tag celery_exporter partnerstack/celery_exporter:1.3.0
-	docker push partnerstack/celery_exporter:1.3.0
+	docker tag celery_exporter partnerstack/celery_exporter:$(VERSION)
+	docker push partnerstack/celery_exporter:$(VERSION)

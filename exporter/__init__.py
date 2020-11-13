@@ -32,7 +32,7 @@ from metrics import (
 
 import amqp.exceptions
 
-__VERSION__ = "1.3.0"
+__VERSION__ = open("VERSION", "r").read().strip()
 
 LOG_FORMAT = "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
 
