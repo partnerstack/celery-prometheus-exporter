@@ -8,22 +8,53 @@ celery_app = Celery()
 celery_app.config_from_object(config)
 
 
-@celery_app.task
-def one():
-    logging.info("ONE")
-    time.sleep(0.2)
+TASK_PRIORITY_HIGH = 9
+TASK_PRIORITY_MEDIUM = 4
+TASK_PRIORITY_LOW = 0
+
+task_runtime = 1
 
 
-@celery_app.task
-def two():
-    logging.info("TWO")
-    time.sleep(0.2)
+@celery_app.task(name="app.one.low", priority=TASK_PRIORITY_LOW)
+def one_low():
+    time.sleep(task_runtime)
 
 
-@celery_app.task
-def three():
-    logging.info("THREE")
-    time.sleep(0.2)
+@celery_app.task(name="app.one.medium", priority=TASK_PRIORITY_MEDIUM)
+def one_medium():
+    time.sleep(task_runtime)
 
 
-print(celery_app.tasks.keys())
+@celery_app.task(name="app.one.high", priority=TASK_PRIORITY_HIGH)
+def one_high():
+    time.sleep(task_runtime)
+
+
+@celery_app.task(name="app.two.low", priority=TASK_PRIORITY_LOW)
+def two_low():
+    time.sleep(task_runtime)
+
+
+@celery_app.task(name="app.two.medium", priority=TASK_PRIORITY_MEDIUM)
+def two_medium():
+    time.sleep(task_runtime)
+
+
+@celery_app.task(name="app.two.high", priority=TASK_PRIORITY_HIGH)
+def two_high():
+    time.sleep(task_runtime)
+
+
+@celery_app.task(name="app.three.low", priority=TASK_PRIORITY_LOW)
+def three_low():
+    time.sleep(task_runtime)
+
+
+@celery_app.task(name="app.three.medium", priority=TASK_PRIORITY_MEDIUM)
+def three_medium():
+    time.sleep(task_runtime)
+
+
+@celery_app.task(name="app.three.high", priority=TASK_PRIORITY_HIGH)
+def three_high():
+    time.sleep(task_runtime)
