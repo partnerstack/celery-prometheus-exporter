@@ -23,42 +23,15 @@ task_routes = {
     "app.three.*": {"queue": Q3},
 }
 
+# how long do each of these schedule tasks sleep for
+task_sleep_time = 0.01  # 10ms
+schedule_frequency = timedelta(milliseconds=10)  # 9 x 10ms = 900/s, requires
 
 beat_schedule = {
-    "one.high": {
-        "task": "app.one.high",
-        "schedule": timedelta(milliseconds=100),
-    },
-    "one.medium": {
-        "task": "app.one.medium",
-        "schedule": timedelta(milliseconds=100),
-    },
-    "one.low": {
-        "task": "app.one.low",
-        "schedule": timedelta(milliseconds=100),
-    },
-    "two.high": {
-        "task": "app.two.high",
-        "schedule": timedelta(milliseconds=100),
-    },
-    "two.medium": {
-        "task": "app.two.medium",
-        "schedule": timedelta(milliseconds=100),
-    },
-    "two.low": {
-        "task": "app.two.low",
-        "schedule": timedelta(milliseconds=100),
-    },
-    "three.high": {
-        "task": "app.three.high",
-        "schedule": timedelta(milliseconds=100),
-    },
-    "three.medium": {
-        "task": "app.three.medium",
-        "schedule": timedelta(milliseconds=100),
-    },
-    "three.low": {
-        "task": "app.three.low",
-        "schedule": timedelta(milliseconds=100),
-    },
+    f"{task_name}.{priority}": {
+        "task": f"app.{task_name}.{priority}",
+        "schedule": schedule_frequency,
+    }
+    for task_name in ["one", "two", "three"]
+    for priority in ["high", "medium", "low"]
 }
