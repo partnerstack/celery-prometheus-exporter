@@ -12,30 +12,53 @@ task_always_eager = False
 task_soft_time_limit = 600
 worker_send_task_events = True
 
+
 Q1 = "queue1"
 Q2 = "queue2"
 Q3 = "queue3"
 
-task_default_queue = Q1
-
 task_routes = {
-    "app.one": {"queue": Q1},
-    "app.two": {"queue": Q2},
-    "app.three": {"queue": Q3},
+    "app.one.*": {"queue": Q1},
+    "app.two.*": {"queue": Q2},
+    "app.three.*": {"queue": Q3},
 }
 
 
 beat_schedule = {
-    "one": {
-        "task": "app.one",
+    "one.high": {
+        "task": "app.one.high",
         "schedule": timedelta(milliseconds=100),
     },
-    "two": {
-        "task": "app.two",
+    "one.medium": {
+        "task": "app.one.medium",
         "schedule": timedelta(milliseconds=100),
     },
-    "three": {
-        "task": "app.three",
+    "one.low": {
+        "task": "app.one.low",
+        "schedule": timedelta(milliseconds=100),
+    },
+    "two.high": {
+        "task": "app.two.high",
+        "schedule": timedelta(milliseconds=100),
+    },
+    "two.medium": {
+        "task": "app.two.medium",
+        "schedule": timedelta(milliseconds=100),
+    },
+    "two.low": {
+        "task": "app.two.low",
+        "schedule": timedelta(milliseconds=100),
+    },
+    "three.high": {
+        "task": "app.three.high",
+        "schedule": timedelta(milliseconds=100),
+    },
+    "three.medium": {
+        "task": "app.three.medium",
+        "schedule": timedelta(milliseconds=100),
+    },
+    "three.low": {
+        "task": "app.three.low",
         "schedule": timedelta(milliseconds=100),
     },
 }
