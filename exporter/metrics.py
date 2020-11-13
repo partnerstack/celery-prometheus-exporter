@@ -22,11 +22,11 @@ TaskRuntimeByNameHistogram = Histogram(
 
 WorkersGauge = Gauge("celery_workers", "Number of alive workers", registry=registry)
 
-TaskLatencyHistogram = Histogram(
-    "celery_task_latency",
-    "Seconds between a task is received and started.",
-    registry=registry,
-)
+# TaskLatencyHistogram = Histogram(
+#     "celery_task_latency",
+#     "Seconds between a task is received and started.",
+#     registry=registry,
+# )
 
 QueueLengthGauge = Gauge(
     "celery_queue_length",

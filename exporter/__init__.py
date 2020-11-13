@@ -1,18 +1,17 @@
-from __future__ import print_function
-from typing import List, Dict
-import argparse
-import collections
-from itertools import chain
-import logging
-from prometheus_client import Histogram, Gauge, start_http_server
-import signal
-import sys
-import threading
 import time
 import os
+import sys
+import signal
+import logging
 
-from celery import Celery
-from celery import Task as CeleryTask
+import argparse
+import collections
+from typing import List, Dict
+
+from threading import Thread
+from queue import Queue
+
+from celery import Celery, Task as CeleryTask
 import celery.states
 import celery.events
 from celery.utils.objects import FallbackContext
@@ -20,12 +19,13 @@ from celery.utils.objects import FallbackContext
 from kombu.exceptions import TimeoutError as QueueIsEmptyError
 from amqp.exceptions import ChannelError as QueueNotFoundError
 
+from prometheus_client import Histogram, Gauge, start_http_server
 from metrics import (
     TasksByStateGauge,
     TasksByStateAndNameGauge,
     TaskRuntimeByNameHistogram,
     WorkersGauge,
-    TaskLatencyHistogram,
+    # TaskLatencyHistogram,
     QueueLengthGauge,
     registry,
 )
@@ -37,13 +37,11 @@ __VERSION__ = "1.3.0"
 LOG_FORMAT = "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
 
 
-def setup_metrics(celery_app: Celery, queue_list: List[str]):
+def initialize_metrics(queue_list: List[str]):
     """
     This initializes the available metrics with default values so that
     even before the first event is received, data can be exposed.
     """
-
-    logging.info("Setting up metrics, trying to connect to broker...")
     WorkersGauge.set(0)
 
     for queue_name in queue_list:
@@ -53,23 +51,74 @@ def setup_metrics(celery_app: Celery, queue_list: List[str]):
         TasksByStateGauge.labels(state=state).set(0)
 
 
-class CeleryMetricsCollector:
-    def __init__(self, celery_app: Celery, queue_list: List[str]):
-        self.task_state = celery_app.events.State(max_tasks_in_memory=100000)
+class CeleryEventReceiverThread(Thread):
+    def __init__(self, celery_app: Celery, task_state, event_queue: Queue):
+        Thread.__init__(self, daemon=True)
         self.celery_app = celery_app
-        self.queue_list = queue_list
-        self.known_states = set()
-        self.timeout_seconds = 1
+        self.task_state = task_state
+        self.event_queue = event_queue
 
     def run(self):
-        # Open a connection
-        connection = self.celery_app.connection_for_read()
+        with self.celery_app.connection() as connection:
+            receiver = self.celery_app.events.Receiver(
+                connection,
+                handlers={
+                    "*": self.handle_event,
+                },
+            )
+            receiver.capture(limit=None, timeout=None, wakeup=True)
 
+    def handle_event(self, event: Dict[str, str]):
+        self.task_state.event(event)
+        self.collect_task_metrics(event)
+        # sleep so main thread can read new state
+        time.sleep(0.01)
+
+    def collect_task_metrics(self, event):
+        task = self.task_state.tasks.get(event.get("uuid"))
+
+        if task is None:
+            return
+
+        if task.runtime:
+            TaskRuntimeByNameHistogram.labels(name=task.name).observe(task.runtime)
+
+        # TODO: How should we track time spent in queue?
+        # if task.sent and task.started:
+        #     TaskLatencyHistogram.observe(task.started - task.sent)
+
+
+class CeleryMetricsCollector:
+    def __init__(self, celery_app: Celery, queue_list: List[str], task_state):
+        self.celery_app = celery_app
+        self.queue_list = queue_list
+        self.task_state = task_state
+
+        self.timeout_seconds = 0.5
+        self.start_time = time.time()
+        self.interval_seconds = 5
+
+    def loop(self):
+        with self.celery_app.connection_for_read() as connection:
+            while True:
+                logging.debug(self.task_state)
+                self.collect(connection)
+                self.tick_sleep()
+
+    def tick_sleep(self):
+        """Sleep for a the remaining time within the interval"""
+        interval_seconds = float(self.interval_seconds)
+        time.sleep(
+            interval_seconds - ((time.time() - self.start_time) % interval_seconds)
+        )
+
+    def collect(self, connection):
         # Worker Count
         WorkersGauge.set(
             len(self.celery_app.control.ping(timeout=self.timeout_seconds))
         )
 
+        # Queue Length
         for queue_name in self.queue_list:
             try:
                 length = connection.default_channel.queue_declare(
@@ -80,90 +129,25 @@ class CeleryMetricsCollector:
 
             QueueLengthGauge.labels(queue_name).set(length)
 
-        # MonitorThread(app=celery_app, max_tasks_in_memory=10000)
-        recv = self.celery_app.events.Receiver(
-            connection,
-            handlers={
-                "*": self.process_celery_event,
-            },
-        )
+        self.collect_task_metrics()
 
-        try:
-            recv.capture(limit=None, timeout=self.timeout_seconds, wakeup=True)
-        except QueueIsEmptyError:
-            logging.debug("Queue is empty")
-
-        # Make sure we release the connection
-        connection.release()
-
-    def process_celery_event(self, event: Dict[str, str]):
-        # TODO: give event a type, it is simply a dictionary with 'type', 'timestamp' and 'state', perhaps wrap with entity
-
-        if celery.events.group_from(event["type"]) == "task":
-            event_state = event["type"].replace("task-", "")
-            state = celery.events.state.TASK_EVENT_TO_STATE[event_state]
-            event["state"] = state
-            if state == celery.states.STARTED:
-                self.observe_latency(event)
-            self.collect_tasks(event)
-
-    def observe_latency(self, event):
-        prev_event = self.task_state.tasks.get(event["uuid"])
-
-        if prev_event is None or prev_event.state == celery.states.RECEIVED:
-            return
-
-        TaskLatencyHistogram.observe(
-            event["local_received"] - prev_event.local_received
-        )
-
-    def collect_tasks(self, event: Dict[str, str]):
-
-        logging.debug(f"collect tasks {event}")
-
-        if event["state"] in celery.states.READY_STATES:
-            self.incr_ready_task(event)
-        else:
-            # add event to list of in-progress tasks
-            self.task_state._event(event)
-
-        self.collect_unready_tasks()
-
-    def incr_ready_task(self, event):
-        TasksByStateGauge.labels(state=event["state"]).inc()
-        # remove event from list of in-progress tasks
-        event = self.task_state.tasks.pop(event["uuid"], None)
-        if event is None:
-            logging.debug("No task found in ready state")
-            return
-
-        TasksByStateAndNameGauge.labels(state=event.state, name=event.name).inc()
-        if event.runtime:
-            TaskRuntimeByNameHistogram.labels(name=event.name).observe(event.runtime)
-
-    def collect_unready_tasks(self):
+    def collect_task_metrics(self):
         state_count = collections.Counter(
             t.state for t in self.task_state.tasks.values()
         )
 
-        for task_state in state_count.elements():
-            TasksByStateGauge.labels(state=task_state).set(state_count[task_state])
+        for state in state_count.elements():
+            TasksByStateGauge.labels(state=state).set(state_count[state])
 
         # count unready tasks by state and name
         state_name_count = collections.Counter(
             (t.state, t.name) for t in self.task_state.tasks.values() if t.name
         )
-        for task_state in state_name_count.elements():
+        for state_name in state_name_count.elements():
             TasksByStateAndNameGauge.labels(
-                state=task_state[0],
-                name=task_state[1],
-            ).set(state_name_count[task_state])
-
-
-def tick_sleep(start_time: float, interval_seconds: int = 5):
-    """Sleep for a the remaining time within the interval"""
-    interval_seconds = float(interval_seconds)
-    time.sleep(interval_seconds - ((time.time() - start_time) % interval_seconds))
+                state=state_name[0],
+                name=state_name[1],
+            ).set(state_name_count[state_name])
 
 
 def shutdown(signum, frame):
@@ -250,23 +234,32 @@ def main():
         #     .replace("\x16", "")
         # )
 
-    celery_app = Celery(broker=opts.broker)
+    celery_app = Celery(broker=opts.broker, result_backend=opts.broker)
 
     logging.info(f"Monitoring queues {queue_list}")
-
-    setup_metrics(celery_app, queue_list=queue_list)
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
+    initialize_metrics(queue_list)
     start_http_server(int(opts.port), registry=registry)
-    celery_metrics_collector = CeleryMetricsCollector(celery_app, queue_list)
 
-    start_time = time.time()
-    while True:
-        logging.debug("Tick")
-        celery_metrics_collector.run()
-        tick_sleep(start_time, interval_seconds=5)
+    task_state = celery_app.events.State(max_tasks_in_memory=100000)
+
+    event_queue = Queue()
+
+    logging.info("Starting event receiver")
+    celery_event_receiver_thread = CeleryEventReceiverThread(
+        celery_app, task_state, event_queue
+    )
+    celery_event_receiver_thread.start()
+
+    logging.info("Listening for new events")
+
+    celery_metrics_collector = CeleryMetricsCollector(
+        celery_app, queue_list, task_state=task_state
+    )
+    celery_metrics_collector.loop()
 
 
 if __name__ == "__main__":

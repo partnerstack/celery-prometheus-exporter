@@ -21,7 +21,7 @@ services:
       - ./:/app
     environment:
       - BROKER_URL=redis://@redis:6379/0
-    entrypoint: celery -A app worker
+    entrypoint: celery -A app worker -Q queue1,queue2,queue3
 
   exporter:
     image: celery-exporter:latest
@@ -38,3 +38,5 @@ services:
 
   redis:
     image: redis:alpine
+    ports:
+      - 6379:6379

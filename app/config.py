@@ -12,11 +12,9 @@ task_always_eager = False
 task_soft_time_limit = 600
 worker_send_task_events = True
 
-
 Q1 = "queue1"
 Q2 = "queue2"
 Q3 = "queue3"
-
 
 task_default_queue = Q1
 
@@ -30,14 +28,14 @@ task_routes = {
 beat_schedule = {
     "one": {
         "task": "app.one",
-        "schedule": timedelta(milliseconds=1000),
+        "schedule": timedelta(milliseconds=100),
     },
     "two": {
         "task": "app.two",
-        "schedule": timedelta(milliseconds=2000),
+        "schedule": timedelta(milliseconds=100),
     },
     "three": {
         "task": "app.three",
-        "schedule": timedelta(milliseconds=3000),
+        "schedule": timedelta(milliseconds=100),
     },
 }

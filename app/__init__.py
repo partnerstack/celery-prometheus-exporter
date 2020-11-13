@@ -1,7 +1,7 @@
 from celery import Celery
 
 import time
-
+import logging
 from app import config
 
 celery_app = Celery()
@@ -10,17 +10,20 @@ celery_app.config_from_object(config)
 
 @celery_app.task
 def one():
-    time.sleep(0.01)
+    logging.info("ONE")
+    time.sleep(0.2)
 
 
 @celery_app.task
 def two():
-    time.sleep(0.02)
+    logging.info("TWO")
+    time.sleep(0.2)
 
 
 @celery_app.task
 def three():
-    time.sleep(0.03)
+    logging.info("THREE")
+    time.sleep(0.2)
 
 
 print(celery_app.tasks.keys())
