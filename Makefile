@@ -4,7 +4,7 @@ VERSION := $(shell cat VERSION)
 all: image
 
 image:
-	docker build -f Dockerfile -t celery_exporter:$(VERSION) .
+	docker build -f Dockerfile -t celery_exporter:$(VERSION) -t celery_exporter:latest .
 
 clean:
 	rm -rf celery_exporter.img *.egg-info build dist
