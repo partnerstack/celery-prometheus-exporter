@@ -142,16 +142,6 @@ class CeleryMetricsCollector:
             ).set(state_name_count[state_name])
 
 
-def shutdown(signum, frame):
-    """
-    Shutdown is called if the process receives a TERM signal. This way
-    we try to prevent an ugly stacktrace being rendered to the user on
-    a normal shutdown.
-    """
-    logging.info("Shutting down")
-    sys.exit(0)
-
-
 def add_priority_queues(queue_list):
     return [
         queue_name
@@ -180,7 +170,20 @@ def initialize_metrics(queue_list: List[str]):
         TasksByStateGauge.labels(state=state).set(0)
 
 
+def shutdown(signum, frame):
+    """
+    Shutdown is called if the process receives a TERM signal. This way
+    we try to prevent an ugly stacktrace being rendered to the user on
+    a normal shutdown.
+    """
+    logging.info("Shutting down")
+    sys.exit(0)
+
+
 def main():
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
     BROKER_URL = os.environ.get("BROKER_URL", "redis://redis:6379/0")
     PORT = os.environ.get("PORT", "8888")
 
@@ -254,9 +257,6 @@ def main():
     celery_app = Celery(broker=opts.broker, result_backend=opts.broker)
 
     logging.info(f"Monitoring queues {queue_list}")
-
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
 
     initialize_metrics(queue_list)
     start_http_server(int(opts.port), registry=registry)
