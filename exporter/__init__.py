@@ -61,7 +61,7 @@ class CeleryEventReceiverThread(Thread):
         self.task_state.event(event)
         self.collect_task_metrics(event)
         # sleep so main thread can read new state
-        time.sleep(0.01)
+        time.sleep(0.0001)
 
     def collect_task_metrics(self, event):
         task = self.task_state.tasks.get(event.get("uuid"))
