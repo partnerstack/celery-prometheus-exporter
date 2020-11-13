@@ -36,19 +36,8 @@ __VERSION__ = "1.3.0"
 
 LOG_FORMAT = "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
 
-
-def initialize_metrics(queue_list: List[str]):
-    """
-    This initializes the available metrics with default values so that
-    even before the first event is received, data can be exposed.
-    """
-    WorkersGauge.set(0)
-
-    for queue_name in queue_list:
-        QueueLengthGauge.labels(queue_name).set(0)
-
-    for state in celery.states.ALL_STATES:
-        TasksByStateGauge.labels(state=state).set(0)
+PRIORITY_STEPS = [0, 3, 6, 9]
+PRIORITY_SEPARATOR = "\x06\x16"
 
 
 class CeleryEventReceiverThread(Thread):
@@ -119,6 +108,11 @@ class CeleryMetricsCollector:
         )
 
         # Queue Length
+        self.collect_queue_length_metrics(connection)
+
+        self.collect_task_metrics()
+
+    def collect_queue_length_metrics(self, connection):
         for queue_name in self.queue_list:
             try:
                 length = connection.default_channel.queue_declare(
@@ -127,9 +121,7 @@ class CeleryMetricsCollector:
             except QueueNotFoundError:
                 length = 0
 
-            QueueLengthGauge.labels(queue_name).set(length)
-
-        self.collect_task_metrics()
+            QueueLengthGauge.labels(sanitize_queue_name(queue_name)).set(length)
 
     def collect_task_metrics(self):
         state_count = collections.Counter(
@@ -160,10 +152,43 @@ def shutdown(signum, frame):
     sys.exit(0)
 
 
+def add_priority_queues(queue_list):
+    return [
+        queue_name
+        if priority_step == 0
+        else f"{queue_name}{PRIORITY_SEPARATOR}{priority_step}"
+        for queue_name in queue_list
+        for priority_step in PRIORITY_STEPS
+    ]
+
+
+def sanitize_queue_name(queue_name):
+    return queue_name.replace(PRIORITY_SEPARATOR, ":")
+
+
+def initialize_metrics(queue_list: List[str]):
+    """
+    This initializes the available metrics with default values so that
+    even before the first event is received, data can be exposed.
+    """
+    WorkersGauge.set(0)
+
+    for queue_name in queue_list:
+        QueueLengthGauge.labels(sanitize_queue_name(queue_name)).set(0)
+
+    for state in celery.states.ALL_STATES:
+        TasksByStateGauge.labels(state=state).set(0)
+
+
 def main():
     BROKER_URL = os.environ.get("BROKER_URL", "redis://redis:6379/0")
     PORT = os.environ.get("PORT", "8888")
+
     QUEUE_LIST = os.environ.get("QUEUE_LIST", [])
+    if len(QUEUE_LIST):
+        QUEUE_LIST = [queue_name for queue_name in QUEUE_LIST.split(",")]
+
+    PRIORITY_LEVELS = os.environ.get("PRIORITY_LEVELS", "false").lower() == "true"
     VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
 
     parser = argparse.ArgumentParser()
@@ -194,8 +219,16 @@ def main():
         "--queue-list",
         dest="queue_list",
         default=QUEUE_LIST,
+        type=str,
         nargs="+",
         help="Queue List. Will be checked for its length.",
+    )
+
+    parser.add_argument(
+        "--priority-levels",
+        action="store_true",
+        default=PRIORITY_LEVELS,
+        help="Flag if queues should expanded with priority levels",
     )
     parser.add_argument("--version", action="version", version=__VERSION__)
 
@@ -212,27 +245,11 @@ def main():
 
     logging.info("Setting up celery for {}".format(opts.broker))
 
-    if opts.queue_list:
-        # CLI argument will likely be a string nested in a list
-        queue_list = opts.queue_list
-        if type(opts.queue_list) == str:
-            queue_list = [opts.queue_list]
-        if len(queue_list) == 1:
-            queue_list = (
-                bytearray(queue_list.pop().encode("utf-8"))
-                .decode("unicode_escape")
-                .split(",")
-            )
+    # default queue list to the default queue name if not given
+    queue_list = ["celery"] if len(opts.queue_list) == 0 else opts.queue_list
 
-        # TODO: Split these into priorities
-        # This is lazy and needs re-implementing properly
-        # just ensuring the queue names look normal in the exporter
-        # sanitized_queue_name = (
-        #     queue.replace("{", "")
-        #     .replace("}", "")
-        #     .replace("\x06", "")
-        #     .replace("\x16", "")
-        # )
+    # Add priority step queues to queue_list if flag is set true
+    queue_list = add_priority_queues(queue_list) if opts.priority_levels else queue_list
 
     celery_app = Celery(broker=opts.broker, result_backend=opts.broker)
 
