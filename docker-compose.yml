@@ -1,33 +1,43 @@
-version: '2'
+version: "2"
 
 services:
-  app:
-    image: celery-exporter:3
+  beat:
+    image: celery-exporter:latest
     build:
       context: .
-      dockerfile: Dockerfile-celery3
-    user: "65534"
+    user: "65534" # TODO: see if this is needed
     volumes:
       - ./:/app
     environment:
-    - BROKER_URL=amqp://rabbit
-    entrypoint: celery -A celeryapp worker
+      - BROKER_URL=redis://@redis:6379/0
+    entrypoint: celery -A app beat
+
+  worker:
+    image: celery-exporter:latest
+    build:
+      context: .
+    user: "65534" # TODO: see if this is needed
+    volumes:
+      - ./:/app
+    environment:
+      - BROKER_URL=redis://@redis:6379/0
+    entrypoint: celery -A app worker -Q queue1,queue2,queue3
 
   exporter:
-    image: celery-exporter:3
+    image: celery-exporter:latest
     build:
       context: .
-      dockerfile: Dockerfile-celery3
     volumes:
       - ./:/app
     environment:
-    - BROKER_URL=amqp://rabbit
-    - QUEUE_LIST=queue1,queue2,queue3
+      - BROKER_URL=redis://@redis:6379/0
+      - QUEUE_LIST=queue1,queue2,queue3
+      - PRIORITY_LEVELS=true
+      - VERBOSE=true
     ports:
       - 8888:8888
 
-  cache:
+  redis:
     image: redis:alpine
-
-  rabbit:
-    image: rabbitmq:alpine
+    ports:
+      - 6379:6379
